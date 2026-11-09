@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>アニメーション教材</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F6F8FA;color:#17202C;font-family:"BIZ UDPGothic","Yu Gothic UI","Meiryo",sans-serif}
+.box{width:min(420px,calc(100vw - 32px));padding:32px 28px;border:1px solid #D3DAE3;border-radius:16px;background:#fff;box-shadow:0 4px 18px rgba(23,32,44,.08)}
+h1{margin:0 0 6px;font-size:24px}
+p{margin:0 0 18px;color:#566275;font-size:15px;line-height:1.6}
+input{width:100%;box-sizing:border-box;padding:12px 14px;font:inherit;font-size:18px;border:1px solid #D3DAE3;border-radius:10px}
+button{margin-top:14px;width:100%;padding:12px;font:inherit;font-size:17px;font-weight:700;color:#fff;background:#1D4ED8;border:0;border-radius:10px;cursor:pointer}
+button:disabled{opacity:.6}
+.err{min-height:1.4em;margin-top:10px;color:#DC2626;font-size:14px}
+</style>
+</head>
+<body>
+<form class="box" id="f">
+  <h1>アニメーション教材</h1>
+  <p>パスワードを入力してください。一度入れると、このブラウザでは次から入力しなくても開けます。</p>
+  <input id="pw" type="password" autocomplete="current-password" aria-label="パスワード" autofocus>
+  <button id="go" type="submit">開く</button>
+  <div class="err" id="err" role="alert"></div>
+</form>
+<script>
+
+const SITE = {"salt":"WAPGeYOvq9J5izxmt/yb3Q==","iter":310000};
+const KEY_NAME = 'anim-site-key';
+const store = (() => { try { localStorage.setItem('t', '1'); localStorage.removeItem('t'); return localStorage; } catch (e) { try { return sessionStorage; } catch (e2) { return null; } } })();
+const b64d = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const b64e = (u8) => btoa(String.fromCharCode(...u8));
+async function deriveKey(pw) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64d(SITE.salt), iterations: SITE.iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+}
+function savedKey() {
+  try {
+    const v = store && JSON.parse(store.getItem(KEY_NAME) || 'null');
+    if (!v || v.salt !== SITE.salt) return null;
+    return crypto.subtle.importKey('raw', b64d(v.key), 'AES-GCM', false, ['decrypt']);
+  } catch (e) { return null; }
+}
+async function saveKey(k) {
+  try { store && store.setItem(KEY_NAME, JSON.stringify({ salt: SITE.salt, key: b64e(new Uint8Array(await crypto.subtle.exportKey('raw', k))) })); } catch (e) { /* 保存できなくても、このページは開ける */ }
+}
+function forgetKey() { try { store && store.removeItem(KEY_NAME); } catch (e) { /* なにもしない */ } }
+async function openEnc(url, k) {
+  const buf = new Uint8Array(await (await fetch(url, { cache: 'no-cache' })).arrayBuffer());
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, k, buf.slice(12));
+  return new TextDecoder().decode(plain);
+}
+function showPage(html) { document.open(); document.write(html); document.close(); }
+
+const next = new URLSearchParams(location.search).get('next');
+async function enter(k) {
+  const html = await openEnc('toc.enc', k);
+  if (next && /^[\w-]+(#\d+)?$/.test(next)) { const [d, h] = next.split('#'); location.replace(d + '/index.html' + (h ? '#' + h : '')); return; }
+  showPage(html);
+}
+(async () => {
+  const k = await savedKey();
+  if (k) { try { await enter(k); return; } catch (e) { forgetKey(); } }
+})();
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('go'), err = document.getElementById('err');
+  btn.disabled = true; err.textContent = '確認中…';
+  try {
+    const k = await deriveKey(document.getElementById('pw').value);
+    await openEnc('toc.enc', k);
+    await saveKey(k);
+    err.textContent = '';
+    await enter(k);
+  } catch (e2) {
+    err.textContent = 'パスワードが違います。';
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

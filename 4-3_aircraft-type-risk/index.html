@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>機体の種類別リスク</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F6F8FA;color:#17202C;font-family:"BIZ UDPGothic","Yu Gothic UI","Meiryo",sans-serif}</style>
+</head>
+<body>
+<p id="msg">読み込み中…</p>
+<script>
+
+const SITE = {"salt":"WAPGeYOvq9J5izxmt/yb3Q==","iter":310000};
+const KEY_NAME = 'anim-site-key';
+const store = (() => { try { localStorage.setItem('t', '1'); localStorage.removeItem('t'); return localStorage; } catch (e) { try { return sessionStorage; } catch (e2) { return null; } } })();
+const b64d = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const b64e = (u8) => btoa(String.fromCharCode(...u8));
+async function deriveKey(pw) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64d(SITE.salt), iterations: SITE.iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+}
+function savedKey() {
+  try {
+    const v = store && JSON.parse(store.getItem(KEY_NAME) || 'null');
+    if (!v || v.salt !== SITE.salt) return null;
+    return crypto.subtle.importKey('raw', b64d(v.key), 'AES-GCM', false, ['decrypt']);
+  } catch (e) { return null; }
+}
+async function saveKey(k) {
+  try { store && store.setItem(KEY_NAME, JSON.stringify({ salt: SITE.salt, key: b64e(new Uint8Array(await crypto.subtle.exportKey('raw', k))) })); } catch (e) { /* 保存できなくても、このページは開ける */ }
+}
+function forgetKey() { try { store && store.removeItem(KEY_NAME); } catch (e) { /* なにもしない */ } }
+async function openEnc(url, k) {
+  const buf = new Uint8Array(await (await fetch(url, { cache: 'no-cache' })).arrayBuffer());
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, k, buf.slice(12));
+  return new TextDecoder().decode(plain);
+}
+function showPage(html) { document.open(); document.write(html); document.close(); }
+
+(async () => {
+  const k = await savedKey();
+  const dir = location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '').split('/').pop();
+  const back = '../index.html?next=' + encodeURIComponent(dir) + encodeURIComponent(location.hash);
+  if (!k) { location.replace(back); return; }
+  try { showPage(await openEnc('page.enc', k)); }
+  catch (e) { forgetKey(); location.replace(back); }
+})();
+</script>
+</body>
+</html>
